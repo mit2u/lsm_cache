@@ -183,19 +183,26 @@ class LSMTree(KeyValueStore):
     def sstable_search(self,key):
         tables = self.last_sstable_file
         for table in range(tables,0,-1):
-            with open(self.data_dir+'/'+'sstable'+str(table), 'r') as sstable:
-                for line in sstable:
-                    print(line)
-                    line_split = line.split( ':' )
-                    try:
-                        int_key = int( line_split[ 0 ] )
-                    except:
-                        int_key = line_split[ 0 ]
-                    if int_key == key:
-                        values = line_split[ 1 ].strip()
-                        if values :
-                            return values
-                        return None
+            value = self.sstable_get(key,table)
+            if value is True:
+                return
+            if value:
+                return value
+
+
+    def sstable_get(self,key,table='1'):
+        with open( self.data_dir + '/' + 'sstable' + str( table ) , 'r' ) as sstable :
+            for line in sstable :
+                line_split = line.split( ':' )
+                try :
+                    int_key = int( line_split[ 0 ] )
+                except :
+                    int_key = line_split[ 0 ]
+                if int_key == key :
+                    values = line_split[ 1 ].strip()
+                    if values :
+                        return values
+                    return True
 
     def read_key_range(self , start_key , end_key):
         values_dict = super(LSMTree,self).read_key_range( start_key , end_key )
@@ -240,12 +247,12 @@ class LSMTree(KeyValueStore):
     def put_sstable (self , sorted_keys) :
         self.last_sstable_file += 1
         last_sstable = 'sstable' + str( self.last_sstable_file )
+        self.sstable_put(  sorted_keys,last_sstable  )
+
+    def sstable_put (self ,  sorted_keys,last_sstable ='sstable1') :
         with open( self.data_dir + '/' + last_sstable , 'w' ) as sstable :
             for key , value in sorted_keys :
-                print( key , value )
                 sstable.write( str( key ) + ':' + str( value ) + '\n' )
-
-
 
     def delete(self,key):
         self._append_to_wal()
@@ -328,7 +335,7 @@ class ReplicatedLSMTree():
         self.socket= server_socket
         self.lsm_instance = LSMTree( 2048 ,str(self.port))
         self.internal_lsm = LSMTree( 2048 ,str(self.port*10 + 1))
-        self.internal_lsm.put_sstable( [( 'leader' , leader ) ])
+        self.internal_lsm.sstable_put( [( 'leader' , leader ) ])
         try :
             self.lsm_instance._restore_wal()
         except :
@@ -367,7 +374,7 @@ class ReplicatedLSMTree():
 
     def get_heartbeat (self) :
         try:
-            return int(self.internal_lsm.sstable_search( 'last_heartbeat' ))
+            return int(float(self.internal_lsm.sstable_get( 'last_heartbeat' )))
         except Exception as e:
             print(e)
             return 0
@@ -379,7 +386,7 @@ class ReplicatedLSMTree():
                 socket_conn.connect( (self.host , node*10+1) )
                 socket_conn.send(('leader:'+str(self.port)).encode())
                 socket_conn.close()
-        self.internal_lsm.put_sstable( [( 'leader' , self.port ) ])
+        self.internal_lsm.sstable_put( [( 'leader' , self.port ) ])
 
     def elect_leader(self):
         while True :
@@ -403,13 +410,12 @@ class ReplicatedLSMTree():
             # Send a response:
             data = data.decode()
             if data.startswith('leader'):
-                self.internal_lsm.put_sstable( [( 'leader' ,int(data.split(':')[1]))] )
-                self.internal_lsm.put_sstable ([('last_heartbeat' ,time.time())])
+                self.internal_lsm.sstable_put( [( 'leader' ,int(data.split(':')[1]))] )
+                self.internal_lsm.sstable_put ([('last_heartbeat' ,time.time())])
             client_socket.close()  # Close the client socket after handling
 
     def decode_func_call (self , line) :
         if line.startswith('batch_put(') or line.startswith('put(') or line.startswith('delete(') :
-            print( line )
             try :
                 self.replicate(line)
             except :
@@ -428,7 +434,7 @@ class ReplicatedLSMTree():
                     socket_conn.close()
 
     def get_leader (self) :
-        return int(self.internal_lsm.sstable_search( 'leader' ))
+        return int(self.internal_lsm.sstable_get( 'leader' ))
 
 
 
