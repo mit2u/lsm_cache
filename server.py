@@ -352,6 +352,7 @@ class ReplicatedLSMTree():
             print("Leader is", leader)
             if leader == self.port:
                 self.broadcast_heartbeat()
+                time.sleep( 50 )
                 continue
             time.sleep(50)
             heatbeat = self.get_heartbeat()
